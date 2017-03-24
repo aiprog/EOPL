@@ -37,7 +37,8 @@
     (expression (identifier) var-exp)
     (expression ("let" identifier "=" expression "in" expression) let-exp)
     (expression ("letrec" identifier "(" identifier ")" "=" expression "in" expression) letrec-exp)
-    (expression ("(" expression expression ")") call-exp)))
+    (expression ("(" expression expression ")") call-exp)
+    (expression ("list" "(" (arbno expression) ")") list-exp)))
 
 (sllgen:make-define-datatypes scanner-spec parser-spec)
 
@@ -59,28 +60,33 @@
   (bool-val
    (bool boolean?))
   (proc-val
-   (proc proc?)))
+   (proc proc?))
+  (list-val
+   (lis list?)))
 
 (define expval->num
   (lambda (val)
     (cases expval val
-      (num-val (num)
-        num)
+      (num-val (num) num)
       (else (eopl:error 'expval->num "Bad conversion: ~s" val)))))
 
 (define expval->bool
   (lambda (val)
     (cases expval val
-      (bool-val (bool)
-        bool)
+      (bool-val (bool) bool)
       (else (eopl:error 'expval->bool "Bad conversion: ~s" val)))))
 
 (define expval->proc
   (lambda (val)
     (cases expval val
-      (proc-val (proc)
-        proc)
+      (proc-val (proc) proc)
       (else (eopl:error 'expval->proc "Bad conversion: ~s" val)))))
+
+(define expval->list
+  (lambda (val)
+    (cases expval val
+      (list-val (lis) lis)
+      (else (eopl:error 'expval->lis "Bad conversion: ~s" val)))))
 
 (define init-env
   (lambda ()
@@ -97,7 +103,8 @@
   (if-cont (env environment?) (cont continuation?) (exp2 expression?) (exp3 expression?))
   (let-cont (env environment?) (cont continuation?) (var symbol?) (exp2 expression?))
   (call-cont1 (env environment?) (cont continuation?) (rand expression?))
-  (call-cont2 (cont continuation?) (val expval?)))
+  (call-cont2 (cont continuation?) (val expval?))
+  (list-cont (env environment?) (const continuation?) (exp list?) (val-list list?))) 
 
 (define apply-cont
   (lambda (cont val)
@@ -113,13 +120,18 @@
         (if (expval->bool val)
           (value-of env cont exp2)
           (value-of env cont exp3)))
-      (let-cont (env cont var exp2)
+      (let-cont (env cont var exp2)  
         (value-of (extend-env var val env) cont exp2))
       (call-cont1 (env cont rand)
         (value-of env (call-cont2 cont val) rand))
       (call-cont2 (cont rator)
-        ((expval->proc rator) cont val)))))
-
+        ((expval->proc rator) cont val))
+      (list-cont (env cont exp val-list)
+        (let ([new-val-list (append val-list (list val))])
+          (if (null? exp)
+            (apply-cont cont (list-val new-val-list))
+            (value-of env (list-cont env cont (cdr exp) new-val-list) (car exp))))))))
+   
 (define value-of
   (lambda (env cont exp)
     (cases expression exp
@@ -138,7 +150,11 @@
       (letrec-exp (name para body exp)
         (value-of (extend-env-rec name para body env) cont exp))
       (call-exp (rator rand)
-        (value-of env (call-cont1 env cont rand) rator)))))
+        (value-of env (call-cont1 env cont rand) rator))
+      (list-exp (exp)
+        (if (null? exp)
+          (apply-cont cont (list-val '()))
+          (value-of env (list-cont env cont (cdr exp) '()) (car exp)))))))
 
 (define value-of-program
   (lambda (pgm)
@@ -150,4 +166,5 @@
   (lambda (str)
     (value-of-program (scan&parse str))))
 
-(run "letrec double (x) = if zero?(x) then 0 else -((double -(x 1)) -(0 2)) in (double 6)")
+;(run "letrec double (x) = if zero?(x) then 0 else -((double -(x 1)) -(0 2)) in (double 6)")
+(run "let a = 1 in let b = 2 in list(a b -(a b))")
